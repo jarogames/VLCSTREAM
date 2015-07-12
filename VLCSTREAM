@@ -1,0 +1,456 @@
+#!/bin/bash
+
+#w_scan -L > dvb-t.xspf﻿
+
+####################### REAL LINE FOR STREAM PART2
+function makeonech() {
+ NAM=$1 
+ pro=$2 
+ ONCH[$i]="{dst=std{access=http,mux=ts,dst=:8080/$NAM},select=\"program=$pro\""
+ echo ${ONCH[$i]}
+}
+
+
+
+####################### REAL LINE FOR STREAM PART1
+function preline() {
+ freq=$1 
+ progs=$2
+ echo "cvlc dvb-t://frequency=$freq:bandwidth=8:dvb-adapter=0 --ts-es-id-pid  --programs=$progs --sout "
+}
+
+
+function rexml() {
+ 
+#cat dvb-t.xspf﻿ | grep title -A 4 | grep -v extension | grep -v "vlc:id"
+#cat dvb-t.xspf﻿ | grep title -A 4 | grep -v extension | grep -v "vlc:id"| sed 's/<location>dvb-t:\/\///g' | sed 's/\:inversio.*//g'
+
+#cat dvb-t.xspf﻿ |  grep -e "title>[0-9]" -A 4 | grep -v extension | grep -v "vlc:id"| sed 's/<location>dvb-t:\/\///g' | sed 's/\:inversio.*//g' | sed 's/title//g' | sed 's/vlc\:option//g' | sed 's/<>//g' | sed 's/<\/>//g'| sed 's/\s//g'
+
+
+#cat dvb-t.xspf﻿ | grep -e "title>[0-9]" -A 4 | grep -v extension | grep -v "vlc:id"| sed 's/<location>dvb-t:\/\///g' | sed 's/\:inversio.*//g' | sed 's/title//g' | sed 's/vlc\:option//g' | sed 's/<>//g' | sed 's/<\/>//g' | sed 's/\s//g' | sed ':a;N;$!ba;s/\n/ /g' | sed 's/\-\-/\n/g' |  sed 's/\s//'
+
+###BOM - byte order mark
+
+#####cat .tzap/channels.conf | cut -d ":"  -f 1-2,13
+
+    LIST=`cat $HOME/dvb-t.xspf | grep -e "title>[0-9]" -A 4 | grep -v extension | grep -v "vlc:id"| sed 's/<location>dvb-t:\/\///g' | sed 's/\:inversio.*//g' | sed 's/title//g' | sed 's/vlc\:option//g' | sed 's/<>//g' | sed 's/<\/>//g' | sed 's/\s//g' | sed ':a;N;$!ba;s/\n/ /g' `
+echo LIST from dvb:
+echo $LIST > /tmp/dvbstream
+
+perl  <(cat <<'EOF'
+    $list=`cat /tmp/dvbstream`;
+    @a=split /\-\-/, $list;
+
+   %name = ();
+   %freq = ();
+   
+open OUT,">/tmp/dvb_multiplex";
+   foreach $i  (@a) {
+    ($name)=($i=~/^\s*\d+\.([\>\'éÔ\+\(\)\w\s\/\-]+:?)\s*frequency/);
+     # lowecase, rem /  - 
+     $name=lc($name);
+#     $name=~s/\/.*$//g;
+     $name=~s/\-/_/g;
+     $name=~s/\+/plus/g;
+#     $name=~s/\(/_/g;
+#     $name=~s/\)/_/g;
+$name=~s/\Ô/O/g; 
+$name=~s/\é/e/g; 
+$name=~s/\'/_/g; 
+$name=~s/\>/_/g; 
+     
+
+    ($freq)=($i=~/frequency=(\d\d\d)/);
+    ($prog)=($i=~/program=(\d+)/);
+#   print "$freq  $name \t $prog \n";
+   $freq{$freq}="";
+   $name{$prog}=$name;
+   }
+   foreach $i (sort keys %freq) {
+     print OUT "${i}MHz\n";
+   }
+close OUT;
+ #  print "=========\n";
+open OUT,">/tmp/dvb_titles";
+   foreach $i (sort {$a <=> $b} keys %name) {
+#     print "$name{$i} $i ";
+     print OUT "$name{$i} ";
+     foreach $j  (@a) {
+      ($name)=($j=~/^\s*\d+\.([\w\s\/\-]+)\s*frequency/);
+       # lowecase, rem /  - 
+       $name=lc($name);
+       $name=~s/\/.*$//g;
+       $name=~s/\-/_/g;
+
+      ($freq)=($j=~/frequency=(\d\d\d)/);
+      ($prog)=($j=~/program=(\d+)/);
+      if ( $name{$i} eq $name ){
+       print OUT " ${freq}MHz";
+      }
+     }
+     print OUT "\n";
+   }
+ close OUT;
+ open OUT,">/tmp/dvb_titles_progN";
+   foreach $i (sort {$a <=> $b} keys %name)  {
+    print OUT "$name{$i} $i\n";
+   }
+ close OUT;
+
+EOF
+)
+#perl <(cat <<'EOF'
+#    print "xxx2: $_\n";
+#EOF
+#)
+#echo ====================== after perl
+#end of perl script
+
+#cat /tmp/dvb_multiplex
+#cat /tmp/dvb_titles
+
+}
+
+
+
+########ctd nova prima NOSOUND
+MULTIPLEX=""
+PROGRAM=$1
+MULTIPLEX=$2
+
+rexml;
+
+if [  "$PROGRAM" = "" ]; then
+ cat /tmp/dvb_titles
+ exit
+fi
+
+
+cat /tmp/dvb_titles | grep -e "^$PROGRAM " >/dev/null
+if [ "$?" != "0" ] ;then
+   echo program $PROGRAM NOT in list /tmp/dvb_titles 
+   exit
+fi
+
+
+
+
+########################## multiplex yes
+if [ "$MULTIPLEX" != "" ]; then
+    echo + multiplex demanded 
+    cat /tmp/dvb_multiplex | grep -e "^$MULTIPLEX$" >/dev/null
+    if [ "$?" != "0" ] ;then
+	echo ! THIS multiplex $MULTIPLEX NOT in list /tmp/dvb_multiplex
+        cat /tmp/dvb_multiplex
+	exit
+    fi
+    echo + checking multiplex and program
+    cat /tmp/dvb_titles | grep -e "^$PROGRAM " | grep -e "$MULTIPLEX"
+    if [ "$?" != "0" ] ;then
+	echo ! program $PROGRAM not in multiplex $MULTIPLEX 
+	cat /tmp/dvb_titles | grep -e "^$PROGRAM "
+	exit
+    fi
+else
+################ automatic multiplex now
+
+    MU=`cat /tmp/dvb_titles | grep -e "^$PROGRAM " `
+    echo + possible  multiplex for  $MU
+    MU2=`cat /tmp/dvb_titles | grep -e "^$PROGRAM " | awk  '{print $2}'`
+    MU3=`cat /tmp/dvb_titles | grep -e "^$PROGRAM " | awk  '{print $3}'`
+    echo + automatic   multiplex :  $MU2 OR $MU3
+    if [ "$MU2" = "626MHz" ]; then
+	MULTIPLEX=$MU3
+    else
+	MULTIPLEX=$MU2
+    fi
+    echo $MULTIPLEX > /tmp/dvb_current_multiplex
+fi
+
+
+
+                      ############### KILL ############ VLC
+killall vlc
+
+
+
+#===== freq
+freq=`echo $MULTIPLEX | sed -e "s/MHz//"`000000
+echo + frequency $freq
+#=====
+ i=0
+ allnames=`cat /tmp/dvb_titles | grep $MULTIPLEX | awk -e '{print $1}'`
+ NAME=( $allnames )
+ for j in "${NAME[@]}" ; do 
+     prog[$i]=`cat /tmp/dvb_titles_progN | grep -e "^$j " | awk -e '{print $2}'`
+     echo  ${NAME[$i]} .. ${prog[$i]}
+     i=$(( $i + 1 ))
+ done
+ maxi=$i
+
+
+OUT="'#duplicate"
+proglist=""
+namelist=""
+DIV=""
+for (( i=0;i<$maxi;i++ )); do
+ OUT=$OUT$DIV$( makeonech ${NAME[$i]} ${prog[$i]} )
+ proglist=$proglist$DIV${prog[$i]}
+ namelist=$namelist$DIV${NAME[$i]}
+ DIV=","
+done 
+  OUT=$OUT$DIV$( makeonech "" `cat /tmp/dvb_titles_progN | grep -e "^$PROGRAM " | awk -e '{print $2}'` )
+  LAST="}' --ttl 3"
+  OUT=$OUT$LAST
+
+PRELINE=$( preline $freq $proglist )
+RUN="$PRELINE $OUT"
+echo $RUN > /tmp/dvb_vlc_gonow
+
+###  $(sleep 1;echo 1;sleep 1;echo 2;sleep 1;echo 3; sleep 1;echo 4;sleep 1;echo 5;/usr/bin/mplayer -cache 9182 http://localhost:8080/ )&
+
+source /tmp/dvb_vlc_gonow
+
+
+exit
+
+# if [ "$MULTIPLEX" = "" ]; then
+# if [ "$PROGRAM" = "ct1" ];        then MULTIPLEX=730MHz; fi
+# if [ "$PROGRAM" = "ct2" ];        then MULTIPLEX=730MHz; fi
+# if [ "$PROGRAM" = "ct24" ];       then MULTIPLEX=730MHz; fi
+# if [ "$PROGRAM" = "radiozurnal" ];then MULTIPLEX=730MHz; fi
+# if [ "$PROGRAM" = "croplus" ];    then MULTIPLEX=730MHz; fi
+
+# if [ "$PROGRAM" = "nova" ];       then MULTIPLEX=634MHz; fi
+# if [ "$PROGRAM" = "novacinema" ]; then MULTIPLEX=634MHz; fi
+# if [ "$PROGRAM" = "prima" ];      then MULTIPLEX=634MHz; fi
+# if [ "$PROGRAM" = "barrandov" ];  then MULTIPLEX=634MHz; fi
+# if [ "$PROGRAM" = "primacool" ];       then MULTIPLEX=634MHz; fi
+
+# if [ "$PROGRAM" = "fanda" ];      then MULTIPLEX=658MHz; fi
+# if [ "$PROGRAM" = "smichov" ];    then MULTIPLEX=658MHz; fi
+# if [ "$PROGRAM" = "telka" ];      then MULTIPLEX=658MHz; fi
+
+# if [ "$PROGRAM" = "ctd" ];        then MULTIPLEX=778MHz; fi
+# if [ "$PROGRAM" = "primalove" ];  then MULTIPLEX=778MHz; fi
+# if [ "$PROGRAM" = "zoom" ];       then MULTIPLEX=778MHz; fi
+# if [ "$PROGRAM" = "bplus" ];      then MULTIPLEX=778MHz; fi
+# if [ "$PROGRAM" = "sport5" ];     then MULTIPLEX=778MHz; fi
+# if [ "$PROGRAM" = "proglas" ];    then MULTIPLEX=778MHz; fi
+# if [ "$PROGRAM" = "barrandovplus" ];    then MULTIPLEX=778MHz; fi
+# if [ "$PROGRAM" = "kinobarrandov" ];    then MULTIPLEX=778MHz; fi
+
+# fi
+
+
+echo ======== MULTIPLEX ====== $MULTIPLEX ===============
+#### here I create arrays    NAME=primacool     prog= number  
+freq=0
+j=0
+#=============================================================
+if [ "$MULTIPLEX" = "490MHz" ]; then
+freq=490000000
+i=0
+ NAME[$i]=kino
+ prog[$i]=6145
+i=$(( $i + 1 ))
+ NAME[$i]=ct1hd
+ prog[$i]=261
+#-----after lastline:
+j=$i
+fi
+#=============================================================
+if [ "$MULTIPLEX" = "730MHz" ]; then
+freq=730000000
+i=0
+ NAME[$i]=ct1
+ prog[$i]=257
+i=$(( $i + 1 ))
+ NAME[$i]=ct2
+ prog[$i]=258 
+i=$(( $i + 1 ))
+ NAME[$i]=ct24
+ prog[$i]=259 
+i=$(( $i + 1 ))
+ NAME[$i]=radiozurnal
+ prog[$i]=16641
+i=$(( $i + 1 ))
+ NAME[$i]=croplus
+ prog[$i]=16647
+#-----after lastline:
+j=$i
+fi
+#=============================================================
+if [ "$MULTIPLEX" = "634MHz" ]; then
+freq=634000000
+i=0
+ NAME[$i]=nova
+ prog[$i]=513
+i=$(( $i + 1 ))
+ NAME[$i]=novacinema
+ prog[$i]=514
+i=$(( $i + 1 ))
+ NAME[$i]=prima
+ prog[$i]=773
+i=$(( $i + 1 ))
+ NAME[$i]=primacool
+ prog[$i]=770
+i=$(( $i + 1 ))
+ NAME[$i]=barrandov
+ prog[$i]=2050
+#-----after lastline:
+j=$i
+fi
+#=============================================================
+if [ "$MULTIPLEX" = "658MHz" ]; then
+freq=658000000
+i=0
+ NAME[$i]=novacinema
+ prog[$i]=514
+i=$(( $i + 1 ))
+ NAME[$i]=fanda
+ prog[$i]=515
+i=$(( $i + 1 ))
+ NAME[$i]=smichov
+ prog[$i]=517
+i=$(( $i + 1 ))
+ NAME[$i]=telka
+ prog[$i]=518
+#-----after lastline:
+j=$i
+fi
+
+#=============================================================CTD
+if [ "$MULTIPLEX" = "778MHz" ]; then
+freq=778000000
+i=0
+ NAME[$i]=ctd
+ prog[$i]=264
+i=$(( $i + 1 ))
+ NAME[$i]=primalove
+ prog[$i]=772
+i=$(( $i + 1 ))
+ NAME[$i]=zoom
+ prog[$i]=774
+i=$(( $i + 1 ))
+ NAME[$i]=bplus
+ prog[$i]=2053
+i=$(( $i + 1 ))
+ NAME[$i]=proglas
+ prog[$i]=17153
+i=$(( $i + 1 ))
+ NAME[$i]=sport5
+ prog[$i]=8194
+i=$(( $i + 1 ))
+ NAME[$i]=barrandovplus
+ prog[$i]=2052
+i=$(( $i + 1 ))
+ NAME[$i]=kinobarrandov
+ prog[$i]=2053
+#-----after lastline:
+j=$i
+fi
+
+#  if [ "$1" = "" ]; then
+# # echo $0  ct      echo $0  nova      echo $0  ctd     echo $0  fanda     echo $0  testif
+# echo "ct1
+# ct2
+# ct24
+# radiozurnal
+# croplus
+
+# nova
+# novacinema
+# prima
+# barrandov
+
+# fanda
+# smichov
+# telka
+
+# ctd
+# primalove
+# zoom
+# bplus
+# sport5
+# proglas
+# barrandovplus
+# kinobarrandov 
+# "
+#
+#     exit 0
+# fi
+
+
+
+# if [ "$1" = "xml" ]; then
+#     rexml
+#     exit
+# fi
+
+
+OUT="'#duplicate"
+proglist=""
+namelist=""
+DIV=""
+for (( i=0;i<=$j;i++ )); do
+ OUT=$OUT$DIV$( makeonech ${NAME[$i]} ${prog[$i]} )
+ proglist=$proglist$DIV${prog[$i]}
+ namelist=$namelist$DIV${NAME[$i]}
+ DIV=","
+done 
+  LAST="}' --ttl 3"
+  OUT=$OUT$LAST
+
+PRELINE=$( preline $freq $proglist )
+RUN="$PRELINE $OUT"
+
+echo ===============================================
+echo $namelist
+echo ===============================================
+#echo $RUN
+echo ===============================================
+echo $namelist
+echo ===============================================
+echo $RUN > /tmp/dvb_vlc_gonow
+source /tmp/dvb_vlc_gonow
+
+
+#####################################################END
+#####################################################END
+#####################################################END
+
+#####################################################END
+exit 0
+#####################################################END
+#####################################################END
+#####################################################END
+
+
+
+#ONCHAN="{dst=std{access=http,mux=ts,dst=:8080/ct1},select=\"program=257\""
+#echo $ONECHAN
+
+
+if [ "$1" = "ct" ]; then
+vlc dvb-t://frequency=730000000:bandwidth=8:dvb-adapter=0 --ts-es-id-pid  --programs=257,258,259,16641,16647 --sout '#duplicate{dst=std{access=http,mux=ts,dst=:8080/ct1},select="program=257",{dst=std{access=http,mux=ts,dst=:8080/ct2},select="program=258",{dst=std{access=http,mux=ts,dst=:8080/ct24},select="program=259",{dst=std{access=http,mux=ts,dst=:8080/rz},select="program=16641",{dst=std{access=http,mux=ts,dst=:8080/croplus},select="program=16647"}' --ttl 3﻿
+fi
+
+if [ "$1" = "nova" ]; then
+vlc dvb-t://frequency=634000000:bandwidth=8:dvb-adapter=0 --ts-es-id-pid  --programs=513,514,773,2050 --sout '#duplicate{dst=std{access=http,mux=ts,dst=:8080/ct1},select="program=257",{dst=std{access=http,mux=ts,dst=:8080/ct2},select="program=258",{dst=std{access=http,mux=ts,dst=:8080/ct24},select="program=259",{dst=std{access=http,mux=ts,dst=:8080/rz},select="program=16641",{dst=std{access=http,mux=ts,dst=:8080/croplus},select="program=16647"}' --ttl 3﻿
+
+fi 
+
+exit 0
+
+# ctd 490000000
+#626 no
+
+# 730 ct1-257 ct2-258 ct24-259 ctsport-260  CRoRad-16641  CRo2-16642  CRoplus-16647
+
+#634000000  nova-513    NoCine-514  Prim-773   Barr-2050  
+
+#658000000   nocin-514   fanda-515    smich-517   telk-518  
+# 778000000  zoom-774
+#w_scan -L > dvb-t.xspf﻿
