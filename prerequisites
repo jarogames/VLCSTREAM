@@ -1,0 +1,16 @@
+#!/bin/bash
+
+function prereq {
+WHAT=$1
+which $WHAT
+if [ "$?" != "0" ]; then 
+ echo  $WHAT no present ... exit
+ exit
+fi
+
+}
+
+prereq w_scan
+prereq tzap
+prereq vlc
+prereq cvlc

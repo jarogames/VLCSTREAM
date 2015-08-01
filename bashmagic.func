@@ -1,0 +1,85 @@
+#!/bin/bash
+################# bashmagic.func #####################
+
+#####################################  automaticaly update version
+# string in master file  : search for line  VERSION=???
+function bm_update_version {
+ NEWVER=`date +%y%m.%d.%H`
+ echo AHOJ new version is $NEWVER
+ grep "VERSION=" $0
+ sed -i "s/^VERSION=.*/VERSION=$NEWVER/" $0
+ grep "VERSION=" $0
+}
+
+
+
+#################################### check prerequisites
+function prereq {
+WHAT=$1
+which $WHAT >/dev/null
+if [ "$?" != 0 ];then
+  echo  $WHAT...not present ... exit
+  exit
+fi
+
+}
+
+
+
+
+################################### replace source .. in master file
+function bm_export_script {
+ echo perl script needed here...
+}
+
+
+
+################################### backup file
+function bkfile {
+WHAT=$1
+if [ -e "$WHAT" ]; then
+ da=`date +%Y%m%d_%H%M%S`
+ echo + ... backup:
+ cp $WHAT $WHAT.$da
+ ls -l $WHAT $WHAT.$da
+else
+ echo $WHAT file does not exist...no backup neccessary
+fi
+
+}
+
+
+
+########################## perl FUNCTION:  export to SINGLE file:
+#   replace     source
+#               perl calls
+function bm_NOT_perlexport {
+#----------start perl
+perl - $1 $2 $3 <<'EOF'
+#!/usr/bin/env perl
+$OUT="$ARGV[0].exported";
+# print "new file $OUT\n";
+
+open IN,"$ARGV[0]";
+open OUT,">$OUT";
+while ($line=<IN>){
+ if (  $line!~/^\s*#/ ){
+   if ( $line=~/source /){
+    ($what)=($line=~/^\s*source\s+(.+)/);
+    print OUT "### including $what ##################################\n";
+    open SRC,"$what"; while (<SRC>){if ($_!~/^#/){print OUT;}}close SRC;
+    print OUT "### end of include $what #############################\n";
+   }else{
+    print OUT $line;
+   }
+ }else{
+  print OUT "$line";
+ }
+} #while
+close IN;
+close OUT;
+EOF
+
+#=========eof perl
+}
+

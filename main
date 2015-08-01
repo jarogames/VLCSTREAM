@@ -1,0 +1,182 @@
+#!/bin/bash
+
+VERSION=1508.01.07
+
+####################### REAL LINE FOR STREAM PART2
+function makeonech() {
+ NAM=$1 
+ pro=$2 
+ ONCH[$i]="{dst=std{access=http,mux=ts,dst=:8080/$NAM},select=\"program=$pro\""
+ echo ${ONCH[$i]}
+}
+
+
+
+####################### REAL LINE FOR STREAM PART1
+function preline() {
+ freq=$1 
+ progs=$2
+ echo "cvlc dvb-t://frequency=$freq:bandwidth=8:dvb-adapter=0 --ts-es-id-pid  --programs=$progs --sout "
+}
+
+
+
+
+source bashmagic.func
+
+prereq w_scan
+prereq tzap
+prereq vlc
+prereq cvlc
+
+while [[ $# > 0 ]]
+do
+
+key="$1"
+shift
+case $key in
+    --update-version)  #  change the file version to now 
+       bm_update_version
+  ;;
+    -h|--help)  # help
+	echo $0 ... version : $VERSION
+	perl bashmagic_showopt.pl $0 
+	echo "-----------------------------------------------------"
+	echo "typical usage:"
+	echo "  $0 -s           ... 10 minutes..DE"
+	echo "  $0 -signal      ... sorts by signal strength"
+#	echo "  $0 -breakout    ... create /tmp/dvb files"
+	echo "  $0 -stream name ... stream program name "
+	echo "  "
+	echo "-----------------------------------------------------"	
+###	echo "$0 --update_version; $0 --export; cp $0.exported ~/00_central/"
+  ;;
+
+    --export) #  join all files into one script
+    echo "% created by $0 ...ver.$VERSION"
+    perl bashmagic_export.pl $0
+   ;;
+
+    -t) # test
+    echo TEST
+    perl aaa
+   ;;
+######################################## program options ###############
+   -s|-scan)  # scan channels
+     # scan dvb-t frontend, terretrial, -X tzap; -M mplayer; -k kaffeine ; -L vlc
+     # i need tzap format -X to find strength with tzap
+	bkfile  $HOME/.tzap/channels.conf
+	rm   $HOME/.tzap/channels.conf
+	echo "i ... prepare for 10 minutes scan AUTOMATICALY DE"
+	w_scan  -f t -A 1 -X > $HOME/.tzap/channels.conf.$$
+	ls -l ~/.tzap/channels.conf.$$
+	perl translate_names.pl  ~/.tzap/channels.conf.$$ >  ~/.tzap/channels.conf
+	echo "i ... automaticaly taken -c DE"
+     ;;
+
+   -signal)  #  test signal strength
+        echo i ... prepare less for 10 minutes test
+        perl testsignal.pl /tmp/dvb_strength.$$
+     ;;
+
+
+   -stream)   #  generate /tmp lists
+        echo . ... breakout to /tmp/dvb files first
+	perl breakout.pl 
+	ls -l /tmp/dvb_multiplex
+	ls -l /tmp/dvb_titles
+	ls -l /tmp/dvb_titles_progN
+       PROGRAM=$1
+       MULTIPLEX=$2
+       echo . ... setting for program: $PROGRAM multiplex: $MULTIPLEX
+       shift
+       shift
+       cat /tmp/dvb_titles | grep -e "^$PROGRAM " >/dev/null
+       if [ "$?" != "0" ] ;then
+	   echo ! ...program $PROGRAM NOT in list /tmp/dvb_titles 
+	   exit
+       fi
+########################## multiplex yes
+       if [ "$MULTIPLEX" != "" ]; then
+	   echo + ... multiplex demanded 
+	   cat /tmp/dvb_multiplex | grep -e "^$MULTIPLEX$" >/dev/null
+	   if [ "$?" != "0" ] ;then
+	       echo ! THIS multiplex $MULTIPLEX NOT in list /tmp/dvb_multiplex
+               cat /tmp/dvb_multiplex
+	       exit
+	   fi
+	   echo + ... checking multiplex and program
+	   cat /tmp/dvb_titles | grep -e "^$PROGRAM " | grep -e "$MULTIPLEX"
+	   if [ "$?" != "0" ] ;then
+	       echo ! ... program $PROGRAM not in multiplex $MULTIPLEX 
+	       cat /tmp/dvb_titles | grep -e "^$PROGRAM "
+	       exit
+	   fi
+       else
+################ automatic multiplex now
+	   MU=`cat /tmp/dvb_titles | grep -e "^$PROGRAM " `
+	   echo + ... possible  multiplex for  $MU
+	   MU2=`cat /tmp/dvb_titles | grep -e "^$PROGRAM " | awk  '{print $2}'`
+	   MU3=`cat /tmp/dvb_titles | grep -e "^$PROGRAM " | awk  '{print $3}'`
+	   echo + ... automatic   multiplex :  $MU2 OR $MU3
+	   MULTIPLEX=$MU2
+#	   if [ "$MU2" = "626MHz" ]; then
+#	       MULTIPLEX=$MU3
+#	   else
+#	       MULTIPLEX=$MU2
+#	   fi
+	   echo $MULTIPLEX > /tmp/dvb_current_multiplex
+       fi
+       ############### KILL ############ VLC
+       killall vlc
+       #===== freq
+       freq=`echo $MULTIPLEX | sed -e "s/MHz//"`000000
+       echo + frequency $freq
+       #===== 
+       i=0
+       allnames=`cat /tmp/dvb_titles | grep $MULTIPLEX | awk -e '{print $1}'`
+       NAME=( $allnames )
+       for j in "${NAME[@]}" ; do 
+	   prog[$i]=`cat /tmp/dvb_titles_progN | grep -e "^$j " | awk -e '{print $2}'`
+	   echo  ${NAME[$i]} .. ${prog[$i]}
+	   i=$(( $i + 1 ))
+       done
+       maxi=$i
+       
+       OUT="'#duplicate"
+       proglist=""
+       namelist=""
+       DIV=""
+       for (( i=0;i<$maxi;i++ )); do
+	   OUT=$OUT$DIV$( makeonech ${NAME[$i]} ${prog[$i]} )
+	   proglist=$proglist$DIV${prog[$i]}
+	   namelist=$namelist$DIV${NAME[$i]}
+	   DIV=","
+       done 
+       OUT=$OUT$DIV$( makeonech "" `cat /tmp/dvb_titles_progN | grep -e "^$PROGRAM " | awk -e '{print $2}'` )
+       LAST="}' --ttl 3"
+       OUT=$OUT$LAST
+
+       PRELINE=$( preline $freq $proglist )
+       RUN="$PRELINE $OUT"
+       echo "#!/bin/bash" > /tmp/dvb_vlc_gonow
+       echo $RUN >> /tmp/dvb_vlc_gonow
+
+###  $(sleep 1;echo 1;sleep 1;echo 2;sleep 1;echo 3; sleep 1;echo 4;sleep 1;echo 5;/usr/bin/mplayer -cache 9182 http://localhost:8080/ )&
+
+# RUN STREAMER
+       chmod +x /tmp/dvb_vlc_gonow
+       /tmp/dvb_vlc_gonow
+
+
+
+
+     ;;
+
+   *)   # unknown option - filename argument
+	 echo unknown argument $key
+	
+   ;;
+esac
+done
+
